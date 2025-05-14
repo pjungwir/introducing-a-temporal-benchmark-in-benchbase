@@ -288,7 +288,7 @@ Notes:
     - I'll show it in a second.
     - I call it the `EXISTS` implementation.
 - There is SQL from Vik Fearing's excellent `periods` extension.
-  - I think the main insight is using windows functions, so I'll call it the `lag` implementation.
+  - I think the main insight is using window functions, so I'll call it the `lag` implementation.
 - And there is the SQL I used in my patch, which uses Postgres ranges and multiranges, especially a function called `range_agg`.
 - So to compare them, I wanted 3 Postgres clusters, each with a different implementation.
 - I took my foreign keys patch and added `ifdef`s, so that I had a compile-time option to use whichever implementation I wanted.
@@ -455,9 +455,9 @@ Notes:
 
 - Technically we need three queries, because FKs need checks under these conditions:
   - If a PK is deleted/updated, check for FKs that are now invalid.
-  - If an FK is inserted/updated, check for PKs that make it valid.
+  - If a FK is inserted/updated, check for PKs that make it valid.
   - Run a big check when you create the FK, to reject any invalid rows that are there already.
-  - I'm showing today is the check you'd run for a new FK row.
+  - What I'm showing today is the check you'd run for a new FK row.
     - In practice all the queries are extremely similar.
 
 

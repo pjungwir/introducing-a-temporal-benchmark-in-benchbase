@@ -18,9 +18,10 @@ Notes:
     - If all that gets in, Postgres will be the first RDBMS to support all of SQL:2011 application time.
 - But no one to my knowledge has ever published a benchmark for temporal databases.
     - I wrote one using the Benchbase framework,
-      so I want to show the procedures it includes,
-      how you can run it,
-      and show how I used it to compare there different implementations of temporal foreign keys.
+      so I want to show the procedures it includes
+      and how I used it to compare three different implementations of temporal foreign keys.
+- You know they closed the Call for Papers before they announced the keynote speaker---that's not really fair.
+  - Many people here are more qualified to design a benchmark, so if you have any feedback at the end or later in the hallway, I'm happy to hear how this could be better.
 
 
 
@@ -43,9 +44,9 @@ Notes:
 
 - Why does temporal need its own benchmark anyway?
 - It's because every table has two extra columns, giving the start & end time for when the row is true.
-    - Or in Postgres it's one extra column, and it's a range or multirange.
+    - Or in Postgres it's one extra column, and it's a range or multirange. (here)
 - This means you need a different schema from any other benchmark.
-- Then the temporal primary keys and foreign keys include those range columns,
+- Then the temporal primary keys and foreign keys include those range columns, (here)
 - and there is special syntax for temporal updates and deletes.
 - Also you want temporal semantics for inner join, outer join, semijoin, antijoin, aggregates, union, intersect, and except.
 
@@ -77,7 +78,7 @@ Notes:
   - As far as I can tell he never shows DDL to create the tables, even on the CD ROM, but Chapter 5 gives enough details to suffice for his examples.
   - Here I'm showing the tables and their salient columns.
   - You can see we've got some old-school column names.
-    - `SSN` is the primary key of `EMPLOYEES`,
+    - `SSN` is the primary key of `EMPLOYEES` (no PII concerns there!),
     - `PCN` is the primary key of `POSITIONS`.
   - Initially `incumbents` is the only temporal table.
     - You can see its start and end columns.
@@ -102,9 +103,10 @@ Notes:
   - You might remember this paper.
   - The authors submitted a patch in 2016 implementing this paper.
   - The paper includes a performance comparison of plain SQL vs their new exec node.
-- They say they are using the *Incumben* dataset, a temporal database about employees from the University of Arizona.
-- It has columns like `pcn` and `ssn`.
-- I wonder where they got that from?
+- They say they are using the *Incumben* dataset:
+  - a temporal database about employees,
+  - from the University of Arizona,
+  - with columns like `pcn` and `ssn`.
 - I've never been able to find this published anywhere.
   - I asked the authors, but they didn't answer.
 - They also don't publish their SQL for a temporal outer join, whose performance they compare to their patched Postgres.
@@ -120,10 +122,12 @@ Notes:
 
 Notes:
 
-- So I wrote a benchmark in Benchbase.
+- So I wrote my own benchmark.
+- I used a tool called Benchbase.
 - This is a Java-based framework from Carnegie-Mellon, published in 2013.
+  - It was originally published as OLTP-Bench.
   - At some point it was renamed to Benchbase.
-  - You can find it on github.
+  - You can find both repos on github.
 - It contains about 20 benchmarks that you can run on about 20 database vendors.
   - TPC-C is in there, and also TPC-H.
   - There are some real-world datasets, like Twitter and Wikipedia.
@@ -163,9 +167,9 @@ Notes:
 
 - My benchmark has just two tables: `employees` and `positions`.
 - This is enough for what we want:
-  - Benchmarking the GiST primary key, e.g. inserts.
-  - Benchmarking temporal updates and deletes.
-  - Benchmarking joins and other binary relational operations.
+  - To benchmark the GiST primary key, we'll do inserts.
+  - We can benchmark temporal updates and deletes.
+  - It lets us benchmark joins and other binary relational operations.
   - And the big one, benchmarking temporal foreign keys.
 - Some of this is in v18, but for updates & deletes you'll need to apply my outstanding patches.
 
@@ -204,9 +208,8 @@ Notes:
 
 - Here is a simple example of a procedure.
   It adds a new position, assigned to a given employee.
-- Benchbase uses reflection to find the SQL string in a member named the same as the class.
-    - If you follow this convention you get better reports at the end.
-- Then there's some boring JDBC to run it.
+- Here is the SQL statement (here)
+- And then some standard JDBC to run it (here)
 
 
 
@@ -276,18 +279,20 @@ Notes:
 - The main thing I've done so far is measure my foreign keys patch.
   - Peter Eisentraut asked for this on the mailing list,
     questions like, "Have you confirmed that it uses the index?"
-- I've seen three ways to implement temporal foreign keys.
+- Using an index is easy to check, but I wanted some defensible numbers,
+  and I wanted to start building a temporal benchmark anyway.
+- But numbers are hard to interpret if you can't compare them to anything.
+  - So I thought it would be interesting to compare three different ways of implementing temporal foreign keys.
 - Snodgrass gives a query in his book.
     - It's about a page of SQL.
-    - It predates range types *or* SQL:2011 `PERIOD`s, so it uses separate start and end columns, which means there are a lot of less than and less-than-or-equal comparisons, and you have to get them all right.
     - I'll show it in a second.
-    - I'll call it the `EXISTS` implementation.
+    - I call it the `EXISTS` implementation.
 - There is SQL from Vik Fearing's excellent `periods` extension.
-    - I'll call this the `lag` implementation.
+  - I think the main insight is using windows functions, so I'll call it the `lag` implementation.
 - And there is the SQL I used in my patch, which uses Postgres ranges and multiranges, especially a function called `range_agg`.
-- I wanted to see which of these approaches was the fastest.
-- So I patched my patch with `ifdef`s, so that I had a compile-time option to use any of these implementations.
-  - I never submitted that version to the mailing list, but it's in my personal Postgres github repo somewhere.
+- So to compare them, I wanted 3 Postgres clusters, each with a different implementation.
+- I took my foreign keys patch and added `ifdef`s, so that I had a compile-time option to use whichever implementation I wanted.
+  - I never submitted that version to the mailing list, but it's in my personal Postgres github repo.
   - Now I could compile and run a separate cluster for each implementation,
     and run benchmarks by doing updates, deletes, and inserts that fire the foreign keys.
 
@@ -416,7 +421,7 @@ Notes:
 
 # `EXISTS` impl
 
-```console
+```console[|23|3,8,13]
  Result  (cost=33.28..33.29 rows=1 width=4)
    One-Time Filter: ((InitPlan 1).col1 AND (InitPlan 2).col1 AND (NOT (InitPlan 4).col1))
    InitPlan 1
@@ -445,14 +450,21 @@ Notes:
 Notes:
 
 - Here is the plan for exists. Pretty complicated!
-- It's 22 rows.
+- It's 22 rows. (here)
 - You can see the tripartite structure.
+
+- Technically we need three queries, because FKs need checks under these conditions:
+  - If a PK is deleted/updated, check for FKs that are now invalid.
+  - If an FK is inserted/updated, check for PKs that make it valid.
+  - Run a big check when you create the FK, to reject any invalid rows that are there already.
+  - I'm showing today is the check you'd run for a new FK row.
+    - In practice all the queries are extremely similar.
 
 
 
 # `LAG` impl
 
-```sql[|11|17|18|5,19]
+```sql[|11|17|17-18|5,17-19]
 SELECT  1
 FROM    (
   SELECT  uk.uk_start_value,
@@ -486,9 +498,9 @@ Notes:
     so that all implementations could use the full GiST index to find rows that are relevant.
     Otherwise it didn't seem like a fair comparison.
 - Conceptually, this is a lot like Snodgrass's idea.
-- It checks that the beginning of the reference is covered.
-- It checks that the end is covered.
-- And it checks that there are no gaps.
+- It checks that the beginning of the reference is covered. (here)
+- It checks that the end is covered. (here)
+- And it checks that there are no gaps. (here)
 - But instead of those nested `NOT EXISTS`, we can use a window function.
 
 
@@ -539,11 +551,12 @@ Notes:
 - And here is the `range_agg` implementation.
 - I like that it's the simplest.
 - Hopefully that means it does the least work.
-- We find all the relevant records in the referenced table,
-- ... then we combine them and make sure they include the referencing range.
+- We find all the relevant records in the referenced table, (here)
+- ... then we combine them and make sure they include the referencing range. (here)
 - You could almost write this without a subquery, but `FOR KEY SHARE` doesn't support aggregate queries.
   - It's on my list of future improvements!
 - Performance aside, note this is the only implementation that supports multiranges and potentially any user-defined type for which you can supply an aggregate function and operators for overlaps and contained-by.
+  - This leaves the door open to support spatial types, box, or whatever you imagine.
   - Also it lets you have ranges over any type, not just date and timestamp.
     - Those other types might not have nice sentinel values like plus/minus infinity.
 
@@ -629,15 +642,13 @@ Notes:
 - So I added more Benchbase procedures that just run the foreign key SQL directly.
 - Now we're moving away from a real-life workflow to a targeted microbenchmark.
 - But it should highlight the perf difference.
-- Actually it was still hard to distinguish differences, although I can see running the queries casually in psql there *was* a difference.
+- Actually it was still hard to distinguish differences, although I could see running the queries casually in psql there *was* a difference.
 - It turns out benchbase does a commit after every transaction, and even though there was nothing to write that was still causing a delay at least 10 times the cost of the query.
     - So I got crazy and switched to no fsync.
 - Another nice thing is now I can run these three procedures simultaneously, as one benchmark, without a patched Postgres.
   - I just give each procedure 33% of the workload.
-  - That's why I have my Noop procedure.
+  - The last 1% I gave to my Noop procedure.
 - It also means that any non-benchmark activity on the machine should affect all implementations equally, because they are all running simultaneously.
-- ~Finally, this lets me compare the other two implementations with non-range columns, to remove some of the extra work they're doing.~
-  - ~Arguably that is unfair to `range_agg`, since we need the range column for primary keys, but still I wanted to see if it made a difference.~
 
 
 
@@ -711,10 +722,6 @@ Notes:
   - Foreign keys are a guardrail to preserve integrity, but if I've got something's id, I expect it to be there 99% of the time---especially with surrogate keys.
 - So I tuned it to 1% failures and tried again.
 
-- Oh also: most of my graphs are from fresh benchmarks, but this surprise was from last summer.
-  - Even with lots of invalid references, I couldn't reproduce it anymore.
-  - Maybe I wasn't trying hard enough.
-
 
 
 # 95% Latency
@@ -756,6 +763,12 @@ Notes:
 
 - Here is mean latency.
 - `EXISTS` is slow again.
+- It only outperforms when most of the checks are for invalid records.
+- In full disclosure, this is a story from last summer that I had trouble reproducing more recently.
+  - I like it because it was a surprise and took some work to make sense of.
+  - But when I was generating new graphs the other week, I couldn't make EXISTS faster, no matter how many errors I caused.
+  - So perhaps there was an additional condition required to cause the imbalance.
+  - I'd like to keep digging.
 
 
 
@@ -768,7 +781,7 @@ Notes:
 
 Notes:
 
-- Here is throughput.
+- Btw here is throughput.
 - I thought I would see something here, but I guess not.
 - Maybe because I told Benchbase to give them all 33% of the workload?
 
@@ -818,34 +831,33 @@ Notes:
 # With History
 
 ```
-  protected void updateEmployees(Connection conn, int lo, int hi) throws SQLException {
-    String sql =
-        "UPDATE employees FOR PORTION OF valid_at FROM ? TO ? " +
-        "SET salary = salary * 1.01 " +
-        "WHERE id = ?";
-    RandomDistribution.Gaussian gaussian =
-        new RandomDistribution.Gaussian(this.rng(), 0, config.getMaxSalaryHistory());
+protected void updateEmployees(Connection conn, int lo, int hi) throws SQLException {
+  String sql =
+      "UPDATE employees FOR PORTION OF valid_at FROM ? TO ? " +
+      "SET salary = salary * 1.01 " +
+      "WHERE id = ?";
+  RandomDistribution.Gaussian gaussian =
+      new RandomDistribution.Gaussian(this.rng(), 0, config.getMaxSalaryHistory());
 
-    try (PreparedStatement employeeUpdate = conn.prepareStatement(sql)) {
-      // For each employee:
-      for (int i = lo; i <= hi; i++) {
-        int raises = gaussian.nextInt();
-        LocalDate s = this.model.today;
-        LocalDate e;
+  try (PreparedStatement employeeUpdate = conn.prepareStatement(sql)) {
+    // For each employee:
+    for (int i = lo; i <= hi; i++) {
+      int raises = gaussian.nextInt();
+      LocalDate s = this.model.today;
+      LocalDate e;
 
-        // For each raise:
-        for (int j = 0; j < raises; j++) {
-          // All employees were hired in the past, so we can start from today
-          // and give a raise every year.
-          e = s.plusDays(365);
+      // For each raise:
+      for (int j = 0; j < raises; j++) {
+        // All employees were hired in the past, so we can start from today
+        // and give a raise every year.
+        e = s.plusDays(365);
 
-          employeeUpdate.setDate(1, Date.valueOf(s));
-          employeeUpdate.setDate(2, Date.valueOf(e));
-          employeeUpdate.setInt(3, i);
-          employeeUpdate.addBatch();
+        employeeUpdate.setDate(1, Date.valueOf(s));
+        employeeUpdate.setDate(2, Date.valueOf(e));
+        employeeUpdate.setInt(3, i);
+        employeeUpdate.addBatch();
 
-          s = e;
-        }
+        s = e;
       }
     }
   }
@@ -859,6 +871,7 @@ Notes:
 - This means one employee's history is split up into multiple rows,
   and the foreign key is only valid if all the rows combine to cover its valid-time.
 - I thought `range_agg` might be worse here, since it has to combine all those rows into a multirange.
+- So I added this code as an optional part of our "load" step, which is what we run before the benchmark, to prepare the data.
 
 
 
@@ -914,7 +927,12 @@ Notes:
 
 - There's a lot more I'd like to do:
   - So far the only serious experiments I've run are on foreign key implementions.
-  - But you could do more!
+    - Even here there's plenty more you could do.
+      - I mentioned interpreting numbers with a comparison.
+      - What I'd really like is to design a workload, and then run it with and without foreign keys, to see what they are costing you.
+      - Then maybe compare that to a similar non-temporal workload showing what regular foreign keys cost.
+      - That's all a bit more work.
+  - And then there's lots beyond foreign keys!
     - I have a few competing SQL implementations for outer join and other things, and I want to compare them.
     - If I can get the Dignös patch to apply after all these years, I want to try reverse-engineering their results.
   - I want to collect more stats from the system, like CPU and IO.
